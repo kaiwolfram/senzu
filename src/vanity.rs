@@ -9,7 +9,11 @@ use rayon::prelude::*;
 
 const MAX_INDEX: u32 = 2 << 31 - 1;
 
-pub fn search_address(xpub: &ExtendedPubKey, prefixes: &[&str]) -> (DerivationPath, Address) {
+/// Searches every derivation path in a breadth first search for an address starting with a `prefix`
+pub fn search_address(
+    xpub: &ExtendedPubKey,
+    prefixes: &[&str],
+) -> Result<(DerivationPath, Address), String> {
     let mut root = IncrementablePath::new();
     let mut found_path = None::<DerivationPath>;
     let secp = Secp256k1::new();
@@ -23,31 +27,33 @@ pub fn search_address(xpub: &ExtendedPubKey, prefixes: &[&str]) -> (DerivationPa
 
         if found_path.is_none() {
             root.increment();
-            println!("Incremented to: {:?}", &root.0);
         }
     }
 
-    // TODO: Separate method to avoid duplicate code check_path
     if let Some(path) = found_path {
         if let Ok(derived) = xpub.derive_pub(&secp, &path) {
             if let Ok(address) = Address::p2wpkh(&derived.public_key, Network::Bitcoin) {
-                return (path, address);
+                return Ok((path, address));
             }
         }
     }
-    panic!();
+
+    Err("Failed to derive xpub at found path".to_string())
 }
 
+/// Wrapper for a derivation path vec that can only be incremented
 struct IncrementablePath(Vec<u32>);
 
 impl IncrementablePath {
+    /// Constructor for path m/
     fn new() -> Self {
-        Self(vec![0u32])
+        Self(vec![])
     }
 
+    /// Increments its derivation path respecting the maximum index value of 2^31 - 1
     fn increment(&mut self) {
         for index in self.0.iter_mut().rev() {
-            if index == &MAX_INDEX {
+            if *index >= MAX_INDEX {
                 *index = 0;
             } else {
                 *index += 1;
@@ -59,6 +65,7 @@ impl IncrementablePath {
         self.0.push(0);
     }
 
+    /// Returns its path as a [DerivationPath] with normal indexes
     fn path(&self) -> DerivationPath {
         let path: Vec<ChildNumber> = self
             .0
@@ -69,6 +76,7 @@ impl IncrementablePath {
     }
 }
 
+/// Checks if the address derived from a given path matches a prefix
 fn check_path(
     secp: &Secp256k1<All>,
     xpub: &ExtendedPubKey,
@@ -81,16 +89,41 @@ fn check_path(
             prefixes.iter().any(|prefix| addr_str.starts_with(prefix))
         } else {
             panic!(
-                "Failed create address from public key {}\n",
+                "Failed to create address from public key {}",
                 &derived.public_key
             );
         }
     } else {
-        panic!("Failed to derive path {}\n", &path);
+        panic!("Failed to derive path {}", &path);
     }
 }
 
-// TODO: Remove panics and println!
-// TODO: Docs
-// TODO: Tests
-// TODO: Skip bc1q prefix
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use bitcoin::util::bip32::DerivationPath;
+
+    use crate::vanity::MAX_INDEX;
+
+    use super::IncrementablePath;
+
+    #[test]
+    fn incrementable_path_new() {
+        let path = IncrementablePath::new();
+
+        assert_eq!(path.path(), DerivationPath::master())
+    }
+
+    #[test]
+    fn incrementable_path_increment() {
+        let mut path_start = IncrementablePath(vec![0u32]);
+        let mut path_end = IncrementablePath(vec![MAX_INDEX]);
+
+        path_start.increment();
+        path_end.increment();
+
+        assert_eq!(path_start.path(), DerivationPath::from_str("m/1").unwrap());
+        assert_eq!(path_end.path(), DerivationPath::from_str("m/0/0").unwrap());
+    }
+}
