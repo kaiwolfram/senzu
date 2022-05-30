@@ -1,7 +1,7 @@
 # senzu
 A vanity address generator that uses your xpub to find addresses. 
 
-It works by derivating your xpub with different paths until an address with a desired prefix is found.
+It works by deriving your xpub with different paths until an address with a desired prefix is found.
 Starting with m/0 it tries every possible path in a breadth first way, 
 so once every combination in a derivation depth is exhausted it'll add 
 another index (in this case m/0/0) and repeats the whole process until a matching address is found.
